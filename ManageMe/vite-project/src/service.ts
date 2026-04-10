@@ -1,8 +1,9 @@
-import type { Project, Story, Task } from "./model"
+import type { Project, Story, Task, AppNotification } from "./model"
 
 const PROJECTS_KEY = "projects"
 const STORIES_KEY = "stories"
 const TASKS_KEY = "tasks";
+const NOTIFICATIONS_KEY = "notifications";
 
 // --- SERWIS PROJEKTÓW ---
 export class ProjectService {
@@ -55,6 +56,10 @@ export class StoryService {
     return data ? JSON.parse(data) : []
   }
 
+  getById(id: string): Story | undefined {
+    return this.getAllFromStorage().find(s => s.id === id);
+  }
+
   saveAll(storiesInProject: Story[], projectId: string) {
     const allStories = this.getAllFromStorage()
     const otherProjectsStories = allStories.filter(s => s.projectId !== projectId)
@@ -93,6 +98,10 @@ export class TaskService {
     return this.getAllFromStorage();
   }
 
+  getById(id: string): Task | undefined {
+    return this.getAllFromStorage().find(t => t.id === id);
+  }
+
   create(task: Task) {
     const tasks = this.getAllFromStorage();
     tasks.push(task);
@@ -113,5 +122,53 @@ export class TaskService {
 
   getByStory(storyId: string): Task[] {
     return this.getAllFromStorage().filter(t => t.storyId === storyId);
+  }
+}
+
+export class NotificationService {
+  private getAllFromStorage(): AppNotification[] {
+    const data = localStorage.getItem(NOTIFICATIONS_KEY);
+    return data ? JSON.parse(data) : [];
+  }
+
+  private saveAll(notifications: AppNotification[]) {
+    localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(notifications));
+  }
+
+  create(notification: AppNotification) {
+    const notifications = this.getAllFromStorage();
+    notifications.push(notification);
+    this.saveAll(notifications);
+    
+    // Trigger event for UI
+    window.dispatchEvent(new CustomEvent('new-notification', { detail: notification }));
+  }
+
+  getAll(recipientId: string): AppNotification[] {
+    return this.getAllFromStorage().filter(n => n.recipientId === recipientId).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }
+
+  getUnreadCount(recipientId: string): number {
+    return this.getAll(recipientId).filter(n => !n.isRead).length;
+  }
+
+  markAsRead(id: string) {
+    const notifications = this.getAllFromStorage().map(n =>
+      n.id === id ? { ...n, isRead: true } : n
+    );
+    this.saveAll(notifications);
+    window.dispatchEvent(new CustomEvent('notification-updated'));
+  }
+
+  markAllAsRead(recipientId: string) {
+    const notifications = this.getAllFromStorage().map(n =>
+      n.recipientId === recipientId ? { ...n, isRead: true } : n
+    );
+    this.saveAll(notifications);
+    window.dispatchEvent(new CustomEvent('notification-updated'));
+  }
+
+  getById(id: string): AppNotification | undefined {
+    return this.getAllFromStorage().find(n => n.id === id);
   }
 }
