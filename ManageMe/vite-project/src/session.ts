@@ -5,8 +5,8 @@ export class SessionService {
   private readonly users: User[] = [
   {
     id: "1",
-    firstName: "Marcin",
-    lastName: "Palys",
+    firstName: "Damian",
+    lastName: "Juruś",
     role: "admin"
   },
   {
