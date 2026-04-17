@@ -1,7 +1,7 @@
 import './style.css';
 import { ProjectService, StoryService, TaskService, NotificationService } from "./service";
 import { SessionService } from "./session";
-import type { Story, Priority, Status, Task, AppNotification } from "./model";
+import type { Story, Priority, Status, Task, AppNotification, User, UserRole } from "./model";
 
 // Inicjalizacja serwisów
 const projectService = new ProjectService();
@@ -9,6 +9,166 @@ const storyService = new StoryService();
 const session = new SessionService();
 const taskService = new TaskService();
 const notificationService = new NotificationService();
+
+// Elementy widoków
+const loginView = document.getElementById("login-view")!;
+const guestView = document.getElementById("guest-view")!;
+const appView = document.getElementById("app-view")!;
+const usersView = document.getElementById("users-view")!;
+
+// Elementy navbar
+const userInfo = document.getElementById("user-info")!;
+const adminLinks = document.getElementById("admin-links")!;
+const logoutBtn = document.getElementById("logoutBtn") as HTMLButtonElement;
+const notificationSection = document.getElementById("notification-section")!;
+const showUsersBtn = document.getElementById("showUsersBtn") as HTMLButtonElement;
+const brandLink = document.getElementById("brand-link")!;
+
+// Elementy logowania
+const googleLoginBtn = document.getElementById("googleLoginBtn") as HTMLButtonElement;
+const loginEmailInput = document.getElementById("loginEmail") as HTMLInputElement;
+
+// --- ZARZĄDZANIE WIDOKAMI ---
+
+function showView(viewId: 'login' | 'guest' | 'app' | 'users') {
+  [loginView, guestView, appView, usersView].forEach(v => v.classList.add('d-none'));
+  
+  if (viewId === 'login') {
+    loginView.classList.remove('d-none');
+    userInfo.classList.add('d-none');
+    logoutBtn.classList.add('d-none');
+    adminLinks.classList.add('d-none');
+    notificationSection.classList.add('d-none');
+  } else if (viewId === 'guest') {
+    guestView.classList.remove('d-none');
+    userInfo.classList.remove('d-none');
+    logoutBtn.classList.remove('d-none');
+  } else if (viewId === 'app') {
+    appView.classList.remove('d-none');
+    userInfo.classList.remove('d-none');
+    logoutBtn.classList.remove('d-none');
+    notificationSection.classList.remove('d-none');
+    if (session.getCurrentUser()?.role === 'admin') {
+      adminLinks.classList.remove('d-none');
+    }
+    renderProjects();
+    loadUsersToSelect();
+    renderStories();
+  } else if (viewId === 'users') {
+    usersView.classList.remove('d-none');
+    userInfo.classList.remove('d-none');
+    logoutBtn.classList.remove('d-none');
+    adminLinks.classList.remove('d-none');
+    renderUserList();
+  }
+}
+
+// --- LOGOWANIE (Mock OAuth) ---
+
+googleLoginBtn.addEventListener('click', () => {
+  const email = loginEmailInput.value.trim() || "user@example.com";
+  const firstName = email.split('@')[0];
+  const lastName = "User";
+  
+  const { user, isNewUser } = session.login({
+    id: crypto.randomUUID(),
+    email,
+    firstName,
+    lastName
+  });
+
+  if (isNewUser) {
+    notifyAdmins("Nowy Użytkownik", `Nowe konto w systemie: ${user.email} (${user.firstName} ${user.lastName})`, 'high');
+  }
+
+  window.location.reload();
+});
+
+logoutBtn.addEventListener('click', () => session.logout());
+
+// --- INICJALIZACJA SESJI ---
+
+const currentUser = session.getCurrentUser();
+
+if (!currentUser) {
+  showView('login');
+} else if (currentUser.isBlocked) {
+  userInfo.innerHTML = `<span class="badge bg-danger">Zablokowany: ${currentUser.email}</span>`;
+  showView('login'); // Re-use login view but maybe show blocked message
+  loginView.querySelector('.card-body')!.innerHTML = `
+    <h2 class="text-danger">Konto Zablokowane</h2>
+    <p>Twoje konto (${currentUser.email}) zostało zablokowane przez administratora.</p>
+    <button class="btn btn-primary" onclick="localStorage.clear(); location.reload()">Wyloguj</button>
+  `;
+} else if (currentUser.role === 'guest') {
+  userInfo.innerHTML = `<span class="badge bg-secondary"><i class="bi bi-person me-1"></i>Gość: ${currentUser.firstName}</span>`;
+  showView('guest');
+} else {
+  const roleColor = currentUser.role === 'admin' ? 'danger' : (currentUser.role === 'devops' ? 'info' : 'primary');
+  userInfo.innerHTML = `<span class="badge bg-${roleColor}-subtle text-${roleColor} border border-${roleColor}-subtle p-2"><i class="bi bi-person-circle me-1"></i>${currentUser.firstName} (${currentUser.role})</span>`;
+  showView('app');
+}
+
+// --- ZARZĄDZANIE UŻYTKOWNIKAMI (ADMIN) ---
+
+showUsersBtn.addEventListener('click', () => showView('users'));
+document.getElementById('backToAppBtn')?.addEventListener('click', () => showView('app'));
+brandLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    if (currentUser && currentUser.role !== 'guest' && !currentUser.isBlocked) showView('app');
+});
+
+function renderUserList() {
+  const users = session.getAllUsers();
+  const listBody = document.getElementById("user-list-body")!;
+  listBody.innerHTML = "";
+
+  users.forEach(u => {
+    const isSuperAdmin = u.email === session.getSuperAdminEmail();
+    const tr = document.createElement("tr");
+    
+    tr.innerHTML = `
+      <td>
+        <div class="fw-bold">${u.firstName} ${u.lastName}</div>
+        <small class="text-muted">${u.id}</small>
+      </td>
+      <td>${u.email}</td>
+      <td>
+        <select class="form-select form-select-sm role-select" ${isSuperAdmin ? 'disabled' : ''}>
+          <option value="guest" ${u.role === 'guest' ? 'selected' : ''}>Gość</option>
+          <option value="developer" ${u.role === 'developer' ? 'selected' : ''}>Developer</option>
+          <option value="devops" ${u.role === 'devops' ? 'selected' : ''}>DevOps</option>
+          <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option>
+        </select>
+      </td>
+      <td>
+        <span class="badge bg-${u.isBlocked ? 'danger' : 'success'}">${u.isBlocked ? 'Zablokowany' : 'Aktywny'}</span>
+      </td>
+      <td class="text-end">
+        <button class="btn btn-sm btn-outline-${u.isBlocked ? 'success' : 'danger'} block-btn" ${isSuperAdmin ? 'disabled' : ''}>
+          ${u.isBlocked ? 'Odblokuj' : 'Zablokuj'}
+        </button>
+      </td>
+    `;
+
+    tr.querySelector(".role-select")?.addEventListener("change", (e) => {
+      const newRole = (e.target as HTMLSelectElement).value as UserRole;
+      session.updateUserRole(u.id, newRole);
+      notifyUser(u.id, "Zmiana uprawnień", `Twoja rola została zmieniona na: ${newRole}`, 'medium');
+    });
+
+    tr.querySelector(".block-btn")?.addEventListener("click", () => {
+      session.toggleUserBlock(u.id);
+      renderUserList();
+    });
+
+    listBody.appendChild(tr);
+  });
+}
+
+// --- POZOSTAŁA LOGIKA (Kopiowana/Adaptowana z poprzedniego main.ts) ---
+
+// (Tutaj wstawiam resztę logiki UI, która była w main.ts, dostosowując ją do currentUser)
 
 // --- THEME MANAGEMENT ---
 const themeToggle = document.getElementById("themeToggle") as HTMLButtonElement;
@@ -40,7 +200,6 @@ themeToggle.addEventListener('click', () => {
 });
 
 // Elementy DOM - Użytkownik i Projekty
-const userInfo = document.getElementById("user-info") as HTMLElement;
 const nameInput = document.getElementById("name") as HTMLInputElement;
 const descInput = document.getElementById("description") as HTMLInputElement;
 const addBtn = document.getElementById("addBtn") as HTMLButtonElement;
@@ -72,14 +231,11 @@ let editingProjectId: string | null = null;
 let selectedStoryId: string | null = null;
 let selectedTask: Task | null = null;
 
-// --- LOGIKA UŻYTKOWNIKA ---
-const user = session.getCurrentUser();
-userInfo.innerHTML = `<span class="badge bg-primary-subtle text-primary border border-primary-subtle p-2"><i class="bi bi-person-circle me-1"></i>${user.firstName} ${user.lastName}</span>`;
-
 // --- POWIADOMIENIA UI LOGIKA ---
 
 function updateNotificationBadge() {
-  const count = notificationService.getUnreadCount(user.id);
+  if (!currentUser) return;
+  const count = notificationService.getUnreadCount(currentUser.id);
   if (count > 0) {
     notificationBadge.innerText = count.toString();
     notificationBadge.classList.remove('d-none');
@@ -89,7 +245,8 @@ function updateNotificationBadge() {
 }
 
 function renderNotificationList() {
-  const notifications = notificationService.getAll(user.id);
+  if (!currentUser) return;
+  const notifications = notificationService.getAll(currentUser.id);
   notificationList.innerHTML = "";
 
   if (notifications.length === 0) {
@@ -194,9 +351,11 @@ notificationBtn.addEventListener("click", () => {
 });
 
 markAllReadBtn.addEventListener("click", () => {
-  notificationService.markAllAsRead(user.id);
-  renderNotificationList();
-  updateNotificationBadge();
+  if (currentUser) {
+    notificationService.markAllAsRead(currentUser.id);
+    renderNotificationList();
+    updateNotificationBadge();
+  }
 });
 
 window.addEventListener('new-notification', (e: any) => {
@@ -403,7 +562,7 @@ addBtn.addEventListener("click", () => {
 
 addStoryBtn.addEventListener("click", () => {
   const activeId = session.getActiveProjectId();
-  if (!activeId || !storyNameInput.value.trim()) return;
+  if (!activeId || !storyNameInput.value.trim() || !currentUser) return;
 
   const newStory: Story = {
     id: crypto.randomUUID(),
@@ -411,7 +570,7 @@ addStoryBtn.addEventListener("click", () => {
     description: storyDescInput.value,
     priority: storyPriority.value as Priority,
     projectId: activeId,
-    ownerId: session.getCurrentUser().id,
+    ownerId: currentUser.id,
     createdAt: new Date().toISOString(),
     status: 'todo'
   };
@@ -560,7 +719,7 @@ addTaskBtn.addEventListener("click", () => {
 });
 
 function loadUsersToSelect() {
-  const users = session.getAllUsers().filter(u => u.role !== "admin");
+  const users = session.getAllUsers().filter(u => u.role !== "admin" && u.role !== "guest" && !u.isBlocked);
   taskUserSelect.innerHTML = `<option value="">Użytkownik</option>`;
   users.forEach(user => {
     const option = document.createElement("option");
@@ -635,8 +794,4 @@ finishTaskBtn.addEventListener("click", () => {
   modal.hide();
 });
 
-// Start aplikacji
-renderProjects();
-loadUsersToSelect();
-renderStories();
 updateNotificationBadge();

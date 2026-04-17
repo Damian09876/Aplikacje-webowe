@@ -14,18 +14,23 @@
         .column-doing { border-top: 5px solid #0dcaf0; }
         .column-done { border-top: 5px solid #198754; }
         .board-column { min-height: 400px; background-color: var(--bs-tertiary-bg); border-radius: 8px; padding: 10px; }
+        .login-container { max-width: 400px; margin: 100px auto; }
     </style>
 </head>
 <body class="bg-body-tertiary">
 
 <nav class="navbar navbar-expand-lg border-bottom sticky-top bg-body">
     <div class="container">
-        <a class="navbar-brand fw-bold" href="#">🚀 ManageMe</a>
+        <a class="navbar-brand fw-bold" href="#" id="brand-link">🚀 ManageMe</a>
         
         <div class="d-flex align-items-center">
+            <div id="admin-links" class="me-3 d-none">
+                <button id="showUsersBtn" class="btn btn-sm btn-outline-primary"><i class="bi bi-people me-1"></i>Użytkownicy</button>
+            </div>
+
             <div id="user-info" class="me-3 d-none d-sm-block"></div>
             
-            <div class="dropdown me-3">
+            <div id="notification-section" class="dropdown me-3 d-none">
                 <button class="btn btn-outline-secondary btn-sm position-relative" id="notificationBtn">
                     <i class="bi bi-bell"></i>
                     <span id="notificationBadge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger d-none">
@@ -34,56 +39,73 @@
                 </button>
             </div>
 
-            <button id="themeToggle" class="btn btn-outline-secondary btn-sm">
+            <button id="themeToggle" class="btn btn-outline-secondary btn-sm me-2">
                 <i id="themeIcon" class="bi bi-moon-stars"></i>
+            </button>
+
+            <button id="logoutBtn" class="btn btn-outline-danger btn-sm d-none">
+                <i class="bi bi-box-arrow-right"></i>
             </button>
         </div>
     </div>
 </nav>
 
-<!-- Notification Toast Container -->
-<div class="toast-container position-fixed bottom-0 end-0 p-3" id="toastContainer"></div>
-
-<!-- Notification List Modal -->
-<div class="modal fade" id="notificationsModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-scrollable">
-        <div class="modal-content border-0 shadow">
-            <div class="modal-header bg-dark text-white">
-                <h5 class="modal-title"><i class="bi bi-bell me-2"></i>Powiadomienia</h5>
-                <div>
-                    <button id="markAllReadBtn" class="btn btn-sm btn-outline-light me-2">Oznacz wszystkie jako przeczytane</button>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
+<!-- Login View -->
+<div id="login-view" class="container d-none">
+    <div class="login-container card shadow-lg border-0">
+        <div class="card-body p-5 text-center">
+            <h2 class="fw-bold mb-4 text-primary">Witaj w ManageMe</h2>
+            <p class="text-muted mb-4">Zaloguj się, aby zarządzać swoimi projektami.</p>
+            <div class="mb-3">
+                <input type="email" id="loginEmail" class="form-control form-control-lg" placeholder="Email (np. admin@manageme.com)">
             </div>
-            <div class="modal-body p-0">
-                <div id="notificationList" class="list-group list-group-flush">
-                    <!-- Notifications will be loaded here -->
-                </div>
-            </div>
+            <button id="googleLoginBtn" class="btn btn-primary btn-lg w-100 mb-3 shadow">
+                <i class="bi bi-google me-2"></i>Zaloguj przez Google
+            </button>
+            <div class="small text-muted">Demo: użyj dowolnego emaila. <br> admin@manageme.com to Super Admin.</div>
         </div>
     </div>
 </div>
 
-<!-- Notification Detail Modal -->
-<div class="modal fade" id="notificationDetailModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content border-0 shadow">
-            <div class="modal-header" id="notificationDetailHeader">
-                <h5 class="modal-title" id="notificationDetailTitle"></h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body">
-                <p id="notificationDetailDate" class="small text-muted mb-2"></p>
-                <div id="notificationDetailMessage"></div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Zamknij</button>
-            </div>
+<!-- Guest View (Waiting for approval) -->
+<div id="guest-view" class="container mt-5 d-none">
+    <div class="text-center p-5 bg-white rounded shadow-sm border">
+        <i class="bi bi-clock-history text-warning display-1 mb-4"></i>
+        <h2 class="fw-bold">Oczekiwanie na zatwierdzenie</h2>
+        <p class="lead text-muted">Twoje konto zostało utworzone, ale administrator musi je zatwierdzić i nadać Ci rolę.</p>
+        <p>Gdy to nastąpi, uzyskasz dostęp do projektów.</p>
+        <button class="btn btn-outline-secondary mt-3" onclick="location.reload()">Odśwież status</button>
+    </div>
+</div>
+
+<!-- User List View (Admin only) -->
+<div id="users-view" class="container mt-5 d-none">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="fw-bold"><i class="bi bi-people-fill me-2"></i>Zarządzanie Użytkownikami</h2>
+        <button id="backToAppBtn" class="btn btn-secondary">Wróć do projektów</button>
+    </div>
+    <div class="card border-0 shadow-sm">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="bg-light">
+                    <tr>
+                        <th>Użytkownik</th>
+                        <th>Email</th>
+                        <th>Rola</th>
+                        <th>Status</th>
+                        <th class="text-end">Akcje</th>
+                    </tr>
+                </thead>
+                <tbody id="user-list-body">
+                    <!-- Users loaded here -->
+                </tbody>
+            </table>
         </div>
     </div>
 </div>
 
-<div class="container mt-4">
+<!-- Main App View -->
+<div id="app-view" class="container mt-4 d-none">
     <div class="row">
         <div class="col-lg-3 col-md-4">
             <div class="card shadow-sm mb-4 border-0">
@@ -190,6 +212,48 @@
                     <h5 class="alert-heading mb-1">Witaj w ManageMe!</h5>
                     Wybierz projekt z listy po lewej lub utwórz nowy, aby zarządzać zadaniami.
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Notification Toast Container -->
+<div class="toast-container position-fixed bottom-0 end-0 p-3" id="toastContainer"></div>
+
+<!-- Notification List Modal -->
+<div class="modal fade" id="notificationsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title"><i class="bi bi-bell me-2"></i>Powiadomienia</h5>
+                <div>
+                    <button id="markAllReadBtn" class="btn btn-sm btn-outline-light me-2">Oznacz wszystkie jako przeczytane</button>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+            </div>
+            <div class="modal-body p-0">
+                <div id="notificationList" class="list-group list-group-flush">
+                    <!-- Notifications will be loaded here -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Notification Detail Modal -->
+<div class="modal fade" id="notificationDetailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header" id="notificationDetailHeader">
+                <h5 class="modal-title" id="notificationDetailTitle"></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p id="notificationDetailDate" class="small text-muted mb-2"></p>
+                <div id="notificationDetailMessage"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Zamknij</button>
             </div>
         </div>
     </div>

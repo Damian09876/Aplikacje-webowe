@@ -1,12 +1,14 @@
 export type Priority = 'low' | 'medium' | 'high';
 export type Status = 'todo' | 'doing' | 'done';
-export type UserRole = 'admin' | 'devops' | 'developer';
+export type UserRole = 'admin' | 'devops' | 'developer' | 'guest';
 
 export interface User {
   id: string;
   firstName: string;
   lastName: string;
+  email: string;
   role: UserRole;
+  isBlocked: boolean;
 }
 
 export interface Project {
