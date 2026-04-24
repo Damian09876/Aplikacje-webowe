@@ -1,7 +1,7 @@
 import './style.css';
 import { ProjectService, StoryService, TaskService, NotificationService } from "./service";
 import { SessionService } from "./session";
-import type { Story, Priority, Status, Task, AppNotification, User, UserRole } from "./model";
+import type { Story, Priority, Status, Task, AppNotification, User, UserRole, Project } from "./model";
 
 // Inicjalizacja serwisów
 const projectService = new ProjectService();
@@ -30,8 +30,8 @@ const loginEmailInput = document.getElementById("loginEmail") as HTMLInputElemen
 
 // --- ZARZĄDZANIE WIDOKAMI ---
 
-function showView(viewId: 'login' | 'guest' | 'app' | 'users') {
-  [loginView, guestView, appView, usersView].forEach(v => v.classList.add('d-none'));
+async function showView(viewId: 'login' | 'guest' | 'app' | 'users') {
+  [loginView, guestView, appView, usersView].forEach((v: HTMLElement) => v.classList.add('d-none'));
   
   if (viewId === 'login') {
     loginView.classList.remove('d-none');
@@ -51,9 +51,9 @@ function showView(viewId: 'login' | 'guest' | 'app' | 'users') {
     if (session.getCurrentUser()?.role === 'admin') {
       adminLinks.classList.remove('d-none');
     }
-    renderProjects();
+    await renderProjects();
     loadUsersToSelect();
-    renderStories();
+    await renderStories();
   } else if (viewId === 'users') {
     usersView.classList.remove('d-none');
     userInfo.classList.remove('d-none');
@@ -65,12 +65,12 @@ function showView(viewId: 'login' | 'guest' | 'app' | 'users') {
 
 // --- LOGOWANIE (Mock OAuth) ---
 
-googleLoginBtn.addEventListener('click', () => {
+googleLoginBtn.addEventListener('click', async () => {
   const email = loginEmailInput.value.trim() || "user@example.com";
   const firstName = email.split('@')[0];
   const lastName = "User";
   
-  const { user, isNewUser } = session.login({
+  const { user, isNewUser } = await session.login({
     id: crypto.randomUUID(),
     email,
     firstName,
@@ -78,7 +78,7 @@ googleLoginBtn.addEventListener('click', () => {
   });
 
   if (isNewUser) {
-    notifyAdmins("Nowy Użytkownik", `Nowe konto w systemie: ${user.email} (${user.firstName} ${user.lastName})`, 'high');
+    await notifyAdmins("Nowy Użytkownik", `Nowe konto w systemie: ${user.email} (${user.firstName} ${user.lastName})`, 'high');
   }
 
   window.location.reload();
@@ -88,34 +88,15 @@ logoutBtn.addEventListener('click', () => session.logout());
 
 // --- INICJALIZACJA SESJI ---
 
-const currentUser = session.getCurrentUser();
-
-if (!currentUser) {
-  showView('login');
-} else if (currentUser.isBlocked) {
-  userInfo.innerHTML = `<span class="badge bg-danger">Zablokowany: ${currentUser.email}</span>`;
-  showView('login'); // Re-use login view but maybe show blocked message
-  loginView.querySelector('.card-body')!.innerHTML = `
-    <h2 class="text-danger">Konto Zablokowane</h2>
-    <p>Twoje konto (${currentUser.email}) zostało zablokowane przez administratora.</p>
-    <button class="btn btn-primary" onclick="localStorage.clear(); location.reload()">Wyloguj</button>
-  `;
-} else if (currentUser.role === 'guest') {
-  userInfo.innerHTML = `<span class="badge bg-secondary"><i class="bi bi-person me-1"></i>Gość: ${currentUser.firstName}</span>`;
-  showView('guest');
-} else {
-  const roleColor = currentUser.role === 'admin' ? 'danger' : (currentUser.role === 'devops' ? 'info' : 'primary');
-  userInfo.innerHTML = `<span class="badge bg-${roleColor}-subtle text-${roleColor} border border-${roleColor}-subtle p-2"><i class="bi bi-person-circle me-1"></i>${currentUser.firstName} (${currentUser.role})</span>`;
-  showView('app');
-}
+let currentUser: User | null = null;
 
 // --- ZARZĄDZANIE UŻYTKOWNIKAMI (ADMIN) ---
 
 showUsersBtn.addEventListener('click', () => showView('users'));
 document.getElementById('backToAppBtn')?.addEventListener('click', () => showView('app'));
-brandLink.addEventListener('click', (e) => {
+brandLink.addEventListener('click', async (e) => {
     e.preventDefault();
-    if (currentUser && currentUser.role !== 'guest' && !currentUser.isBlocked) showView('app');
+    if (currentUser && currentUser.role !== 'guest' && !currentUser.isBlocked) await showView('app');
 });
 
 function renderUserList() {
@@ -123,7 +104,7 @@ function renderUserList() {
   const listBody = document.getElementById("user-list-body")!;
   listBody.innerHTML = "";
 
-  users.forEach(u => {
+  users.forEach((u: User) => {
     const isSuperAdmin = u.email === session.getSuperAdminEmail();
     const tr = document.createElement("tr");
     
@@ -151,24 +132,20 @@ function renderUserList() {
       </td>
     `;
 
-    tr.querySelector(".role-select")?.addEventListener("change", (e) => {
+    tr.querySelector(".role-select")?.addEventListener("change", async (e) => {
       const newRole = (e.target as HTMLSelectElement).value as UserRole;
-      session.updateUserRole(u.id, newRole);
-      notifyUser(u.id, "Zmiana uprawnień", `Twoja rola została zmieniona na: ${newRole}`, 'medium');
+      await session.updateUserRole(u.id, newRole);
+      await notifyUser(u.id, "Zmiana uprawnień", `Twoja rola została zmieniona na: ${newRole}`, 'medium');
     });
 
-    tr.querySelector(".block-btn")?.addEventListener("click", () => {
-      session.toggleUserBlock(u.id);
+    tr.querySelector(".block-btn")?.addEventListener("click", async () => {
+      await session.toggleUserBlock(u.id);
       renderUserList();
     });
 
     listBody.appendChild(tr);
   });
 }
-
-// --- POZOSTAŁA LOGIKA (Kopiowana/Adaptowana z poprzedniego main.ts) ---
-
-// (Tutaj wstawiam resztę logiki UI, która była w main.ts, dostosowując ją do currentUser)
 
 // --- THEME MANAGEMENT ---
 const themeToggle = document.getElementById("themeToggle") as HTMLButtonElement;
@@ -233,9 +210,9 @@ let selectedTask: Task | null = null;
 
 // --- POWIADOMIENIA UI LOGIKA ---
 
-function updateNotificationBadge() {
+async function updateNotificationBadge() {
   if (!currentUser) return;
-  const count = notificationService.getUnreadCount(currentUser.id);
+  const count = await notificationService.getUnreadCount(currentUser.id);
   if (count > 0) {
     notificationBadge.innerText = count.toString();
     notificationBadge.classList.remove('d-none');
@@ -244,9 +221,9 @@ function updateNotificationBadge() {
   }
 }
 
-function renderNotificationList() {
+async function renderNotificationList() {
   if (!currentUser) return;
-  const notifications = notificationService.getAll(currentUser.id);
+  const notifications = await notificationService.getAll(currentUser.id);
   notificationList.innerHTML = "";
 
   if (notifications.length === 0) {
@@ -254,7 +231,7 @@ function renderNotificationList() {
     return;
   }
 
-  notifications.forEach(notif => {
+  notifications.forEach((notif: AppNotification) => {
     const item = document.createElement("a");
     item.href = "#";
     const priorityColor = notif.priority === 'high' ? 'danger' : (notif.priority === 'medium' ? 'warning' : 'info');
@@ -272,27 +249,27 @@ function renderNotificationList() {
       </div>
     `;
 
-    item.querySelector(".mark-read-btn")?.addEventListener("click", (e) => {
+    item.querySelector(".mark-read-btn")?.addEventListener("click", async (e) => {
       e.stopPropagation();
       e.preventDefault();
-      notificationService.markAsRead(notif.id);
-      renderNotificationList();
-      updateNotificationBadge();
+      await notificationService.markAsRead(notif.id);
+      await renderNotificationList();
+      await updateNotificationBadge();
     });
 
-    item.addEventListener("click", (e) => {
+    item.addEventListener("click", async (e) => {
       e.preventDefault();
-      showNotificationDetail(notif);
+      await showNotificationDetail(notif);
     });
 
     notificationList.appendChild(item);
   });
 }
 
-function showNotificationDetail(notif: AppNotification) {
-  notificationService.markAsRead(notif.id);
-  updateNotificationBadge();
-  renderNotificationList();
+async function showNotificationDetail(notif: AppNotification) {
+  await notificationService.markAsRead(notif.id);
+  await updateNotificationBadge();
+  await renderNotificationList();
 
   const title = document.getElementById("notificationDetailTitle")!;
   const date = document.getElementById("notificationDetailDate")!;
@@ -343,36 +320,36 @@ function showToast(notif: AppNotification) {
   });
 }
 
-notificationBtn.addEventListener("click", () => {
-  renderNotificationList();
+notificationBtn.addEventListener("click", async () => {
+  await renderNotificationList();
   // @ts-ignore
   const modal = new bootstrap.Modal(document.getElementById("notificationsModal"));
   modal.show();
 });
 
-markAllReadBtn.addEventListener("click", () => {
+markAllReadBtn.addEventListener("click", async () => {
   if (currentUser) {
-    notificationService.markAllAsRead(currentUser.id);
-    renderNotificationList();
-    updateNotificationBadge();
+    await notificationService.markAllAsRead(currentUser.id);
+    await renderNotificationList();
+    await updateNotificationBadge();
   }
 });
 
-window.addEventListener('new-notification', (e: any) => {
-  updateNotificationBadge();
+window.addEventListener('new-notification', (async (e: any) => {
+  await updateNotificationBadge();
   showToast(e.detail);
-});
+}) as EventListener);
 
-window.addEventListener('notification-updated', () => {
-  updateNotificationBadge();
+window.addEventListener('notification-updated', async () => {
+  await updateNotificationBadge();
 });
 
 // --- HELPER POWIADOMIENIA TRIGGERS ---
 
-function notifyAdmins(title: string, message: string, priority: Priority) {
-  const admins = session.getAllUsers().filter(u => u.role === 'admin');
-  admins.forEach(admin => {
-    notificationService.create({
+async function notifyAdmins(title: string, message: string, priority: Priority) {
+  const admins = session.getAllUsers().filter((u: User) => u.role === 'admin');
+  for (const admin of admins) {
+    await notificationService.create({
       id: crypto.randomUUID(),
       title,
       message,
@@ -381,11 +358,11 @@ function notifyAdmins(title: string, message: string, priority: Priority) {
       isRead: false,
       recipientId: admin.id
     });
-  });
+  }
 }
 
-function notifyUser(userId: string, title: string, message: string, priority: Priority) {
-  notificationService.create({
+async function notifyUser(userId: string, title: string, message: string, priority: Priority) {
+  await notificationService.create({
     id: crypto.randomUUID(),
     title,
     message,
@@ -397,12 +374,12 @@ function notifyUser(userId: string, title: string, message: string, priority: Pr
 }
 
 // --- RENDEROWANIE PROJEKTÓW ---
-function renderProjects() {
+async function renderProjects() {
   projectList.innerHTML = "";
-  const projects = projectService.getAll();
+  const projects = await projectService.getAll();
   const activeProjectId = session.getActiveProjectId();
 
-  projects.forEach(project => {
+  projects.forEach((project: Project) => {
     const isActive = project.id === activeProjectId;
     const li = document.createElement("div");
     li.className = `list-group-item list-group-item-action d-flex justify-content-between align-items-center border-0 mb-1 rounded ${isActive ? "active-project shadow-sm" : ""}`;
@@ -417,10 +394,10 @@ function renderProjects() {
       </div>
     `;
 
-    li.querySelector(".project-info")?.addEventListener("click", () => {
+    li.querySelector(".project-info")?.addEventListener("click", async () => {
       session.setActiveProject(project.id);
-      renderProjects();
-      renderStories();
+      await renderProjects();
+      await renderStories();
     });
 
     li.querySelector(".edit-btn")?.addEventListener("click", (e) => {
@@ -433,15 +410,15 @@ function renderProjects() {
       nameInput.focus();
     });
 
-    li.querySelector(".delete-btn")?.addEventListener("click", (e) => {
+    li.querySelector(".delete-btn")?.addEventListener("click", async (e) => {
       e.stopPropagation();
       if(confirm(`Czy na pewno chcesz usunąć projekt "${project.name}"?`)) {
-        projectService.delete(project.id);
+        await projectService.delete(project.id);
         if (session.getActiveProjectId() === project.id) {
           localStorage.removeItem("active_project_id");
         }
-        renderProjects();
-        renderStories();
+        await renderProjects();
+        await renderStories();
       }
     });
 
@@ -450,7 +427,7 @@ function renderProjects() {
 }
 
 // --- RENDEROWANIE HISTORYJEK (BOARD) ---
-function renderStories() {
+async function renderStories() {
   const activeProjectId = session.getActiveProjectId();
   
   if (!activeProjectId) {
@@ -461,17 +438,17 @@ function renderStories() {
 
   storySection.style.display = "block";
   noProjectAlert.style.display = "none";
-  const stories = storyService.getAll(activeProjectId);
+  const stories = await storyService.getAll(activeProjectId);
 
-  const cols = {
+  const cols: Record<Status, HTMLElement> = {
     todo: document.getElementById("col-todo")!,
     doing: document.getElementById("col-doing")!,
     done: document.getElementById("col-done")!
   };
 
-  Object.values(cols).forEach(c => c.innerHTML = "");
+  Object.values(cols).forEach((c: HTMLElement) => c.innerHTML = "");
 
-  stories.forEach(story => {
+  stories.forEach((story: Story) => {
     const div = document.createElement("div");
     const priorityColor = story.priority === 'high' ? 'danger' : (story.priority === 'medium' ? 'warning' : 'success');
     const isSelected = selectedStoryId === story.id;
@@ -497,14 +474,14 @@ function renderStories() {
       </div>
     `;
 
-    div.querySelector(".select-story-btn")?.addEventListener("click", (e) => {
+    div.querySelector(".select-story-btn")?.addEventListener("click", async (e) => {
       e.stopPropagation();
       selectedStoryId = story.id;
-      renderStories();
-      renderTasks(story.id);
+      await renderStories();
+      await renderTasks(story.id);
     });
 
-    div.querySelector(".next-status-btn")?.addEventListener("click", (e) => {
+    div.querySelector(".next-status-btn")?.addEventListener("click", async (e) => {
         e.stopPropagation();
         const nextStatus: Record<Status, Status> = {
             'todo': 'doing',
@@ -513,16 +490,16 @@ function renderStories() {
         };
         const oldStatus = story.status;
         story.status = nextStatus[story.status];
-        storyService.update(story);
+        await storyService.update(story);
         
         // Notification for status change
         const priority: Priority = story.status === 'done' ? 'medium' : (story.status === 'doing' ? 'low' : 'low');
-        notifyUser(story.ownerId, "Zmiana statusu historyjki", `Historyjka "${story.name}" zmieniła status z ${oldStatus} na ${story.status}.`, priority);
+        await notifyUser(story.ownerId, "Zmiana statusu historyjki", `Historyjka "${story.name}" zmieniła status z ${oldStatus} na ${story.status}.`, priority);
 
-        renderStories();
+        await renderStories();
 
         if (selectedStoryId === story.id) {
-            renderTasks(story.id);
+            await renderTasks(story.id);
         }
     });
 
@@ -532,11 +509,11 @@ function renderStories() {
 
 // --- EVENT LISTENERY ---
 
-addBtn.addEventListener("click", () => {
+addBtn.addEventListener("click", async () => {
   if (!nameInput.value.trim()) return;
   
   if (editingProjectId) {
-    projectService.update({
+    await projectService.update({
       id: editingProjectId,
       name: nameInput.value,
       description: descInput.value
@@ -550,17 +527,17 @@ addBtn.addEventListener("click", () => {
       name: nameInput.value,
       description: descInput.value
     };
-    projectService.create(newProject);
+    await projectService.create(newProject);
     
     // Notification for new project
-    notifyAdmins("Nowy Projekt", `Utworzono nowy projekt: "${newProject.name}"`, 'high');
+    await notifyAdmins("Nowy Projekt", `Utworzono nowy projekt: "${newProject.name}"`, 'high');
   }
   nameInput.value = "";
   descInput.value = "";
-  renderProjects();
+  await renderProjects();
 });
 
-addStoryBtn.addEventListener("click", () => {
+addStoryBtn.addEventListener("click", async () => {
   const activeId = session.getActiveProjectId();
   if (!activeId || !storyNameInput.value.trim() || !currentUser) return;
 
@@ -575,42 +552,42 @@ addStoryBtn.addEventListener("click", () => {
     status: 'todo'
   };
 
-  storyService.create(newStory);
+  await storyService.create(newStory);
   storyNameInput.value = "";
   storyDescInput.value = "";
-  renderStories();
+  await renderStories();
 });
 
-function renderTasks(storyId: string) {
-  const tasks = taskService.getByStory(storyId);
-  const story = storyService.getById(storyId);
+async function renderTasks(storyId: string) {
+  const tasks = await taskService.getByStory(storyId);
+  const story = await storyService.getById(storyId);
   
-  const cols = {
+  const cols: Record<Status, HTMLElement> = {
     todo: document.getElementById("col-todo")!,
     doing: document.getElementById("col-doing")!,
     done: document.getElementById("col-done")!
   };
 
-  Object.values(cols).forEach(c => c.innerHTML = "");
+  Object.values(cols).forEach((c: HTMLElement) => c.innerHTML = "");
 
   const backBtn = document.createElement("div");
   backBtn.className = "mb-3 w-100";
   backBtn.innerHTML = `<button class="btn btn-sm btn-outline-secondary w-100"><i class="bi bi-arrow-left me-1"></i>Powrót do Stories (${story?.name})</button>`;
-  backBtn.onclick = () => {
+  backBtn.onclick = async () => {
     selectedStoryId = null;
-    renderStories();
+    await renderStories();
   };
   cols.todo.appendChild(backBtn);
 
-  tasks.forEach(task => {
+  tasks.forEach((task: Task) => {
     const div = document.createElement("div");
     const priorityColor = task.priority === 'high' ? 'danger' : (task.priority === 'medium' ? 'warning' : 'success');
     
     div.className = `card mb-2 shadow-sm border-0 border-start border-3 border-${priorityColor}`;
     div.style.cursor = "pointer";
-    div.onclick = () => showTaskDetails(task);
+    div.onclick = async () => await showTaskDetails(task);
     
-    const assignedUser = session.getAllUsers().find(u => u.id === task.assignedUserId);
+    const assignedUser = session.getAllUsers().find((u: User) => u.id === task.assignedUserId);
 
     div.innerHTML = `
       <div class="card-body p-2">
@@ -630,54 +607,54 @@ function renderTasks(storyId: string) {
       </div>
     `;
 
-    div.querySelector(".delete-task-btn")?.addEventListener("click", (e) => {
+    div.querySelector(".delete-task-btn")?.addEventListener("click", async (e) => {
       e.stopPropagation();
       if (confirm(`Czy usunąć task "${task.name}"?`)) {
-        taskService.delete(task.id);
+        await taskService.delete(task.id);
         
         // Notification for deleted task
         if (story) {
-           notifyUser(story.ownerId, "Usunięcie zadania", `Usunięto zadanie "${task.name}" z historyjki "${story.name}".`, 'medium');
+           await notifyUser(story.ownerId, "Usunięcie zadania", `Usunięto zadanie "${task.name}" z historyjki "${story.name}".`, 'medium');
         }
         
-        renderTasks(storyId);
+        await renderTasks(storyId);
       }
     });
 
-    div.querySelector(".done-btn")?.addEventListener("click", (e) => {
+    div.querySelector(".done-btn")?.addEventListener("click", async (e) => {
       e.stopPropagation();
-      finishTask(task);
-      renderTasks(storyId);
+      await finishTask(task);
+      await renderTasks(storyId);
     });
 
     cols[task.status].appendChild(div);
   });
 }
 
-function finishTask(task: Task) {
+async function finishTask(task: Task) {
   task.status = "done";
   task.finishedAt = new Date().toISOString();
-  taskService.update(task);
+  await taskService.update(task);
   
-  const story = storyService.getById(task.storyId);
+  const story = await storyService.getById(task.storyId);
   if (story) {
-    notifyUser(story.ownerId, "Status zadania: DONE", `Zadanie "${task.name}" w historyjce "${story.name}" zostało ukończone.`, 'medium');
+    await notifyUser(story.ownerId, "Status zadania: DONE", `Zadanie "${task.name}" w historyjce "${story.name}" zostało ukończone.`, 'medium');
   }
 
-  const tasks = taskService.getByStory(task.storyId);
-  const allDone = tasks.every(t => t.status === "done");
+  const tasks = await taskService.getByStory(task.storyId);
+  const allDone = tasks.every((t: Task) => t.status === "done");
 
   if (allDone) {
     if (story) {
       story.status = "done";
-      storyService.update(story);
-      notifyUser(story.ownerId, "Historyjka ukończona", `Wszystkie zadania w historyjce "${story.name}" zostały ukończone. Status zmieniony na DONE.`, 'medium');
-      renderStories();
+      await storyService.update(story);
+      await notifyUser(story.ownerId, "Historyjka ukończona", `Wszystkie zadania w historyjce "${story.name}" zostały ukończone. Status zmieniony na DONE.`, 'medium');
+      await renderStories();
     }
   }
 }
 
-addTaskBtn.addEventListener("click", () => {
+addTaskBtn.addEventListener("click", async () => {
   if (!selectedStoryId) {
     alert("Najpierw wybierz Story z tablicy!");
     return;
@@ -701,27 +678,27 @@ addTaskBtn.addEventListener("click", () => {
     newTask.startedAt = new Date().toISOString();
     
     // Notification for task assignment
-    notifyUser(newTask.assignedUserId, "Przypisanie do zadania", `Zostałeś przypisany do nowego zadania: "${newTask.name}"`, 'high');
+    await notifyUser(newTask.assignedUserId, "Przypisanie do zadania", `Zostałeś przypisany do nowego zadania: "${newTask.name}"`, 'high');
   }
 
-  taskService.create(newTask);
+  await taskService.create(newTask);
   
   // Notification for new task in story
-  const story = storyService.getById(selectedStoryId);
+  const story = await storyService.getById(selectedStoryId);
   if (story) {
-    notifyUser(story.ownerId, "Nowe zadanie w historyjce", `Do Twojej historyjki "${story.name}" dodano nowe zadanie: "${newTask.name}".`, 'medium');
+    await notifyUser(story.ownerId, "Nowe zadanie w historyjce", `Do Twojej historyjki "${story.name}" dodano nowe zadanie: "${newTask.name}".`, 'medium');
   }
 
   taskNameInput.value = "";
   taskDescInput.value = "";
   taskTimeInput.value = "";
-  renderTasks(selectedStoryId);
+  await renderTasks(selectedStoryId);
 });
 
 function loadUsersToSelect() {
-  const users = session.getAllUsers().filter(u => u.role !== "admin" && u.role !== "guest" && !u.isBlocked);
+  const users = session.getAllUsers().filter((u: User) => u.role !== "admin" && u.role !== "guest" && !u.isBlocked);
   taskUserSelect.innerHTML = `<option value="">Użytkownik</option>`;
-  users.forEach(user => {
+  users.forEach((user: User) => {
     const option = document.createElement("option");
     option.value = user.id;
     option.textContent = `${user.firstName} ${user.lastName}`;
@@ -729,10 +706,10 @@ function loadUsersToSelect() {
   });
 }
 
-function showTaskDetails(task: Task) {
+async function showTaskDetails(task: Task) {
   selectedTask = task;
-  const assignedUser = session.getAllUsers().find(u => u.id === task.assignedUserId);
-  const story = storyService.getById(task.storyId);
+  const assignedUser = session.getAllUsers().find((u: User) => u.id === task.assignedUserId);
+  const story = await storyService.getById(task.storyId);
   const details = document.getElementById("taskDetails")!;
 
   details.innerHTML = `
@@ -784,14 +761,41 @@ function showTaskDetails(task: Task) {
 }
 
 const finishTaskBtn = document.getElementById("finishTaskBtn") as HTMLButtonElement;
-finishTaskBtn.addEventListener("click", () => {
+finishTaskBtn.addEventListener("click", async () => {
   if (!selectedTask) return;
-  finishTask(selectedTask);
-  renderTasks(selectedTask.storyId);
+  await finishTask(selectedTask);
+  await renderTasks(selectedTask.storyId);
   const modalEl = document.getElementById("taskModal")!;
   // @ts-ignore
   const modal = bootstrap.Modal.getInstance(modalEl);
   modal.hide();
 });
 
-updateNotificationBadge();
+// --- INICJALIZACJA APLIKACJI ---
+
+async function init() {
+  await session.initialize();
+  currentUser = session.getCurrentUser();
+
+  if (!currentUser) {
+    await showView('login');
+  } else if (currentUser.isBlocked) {
+    userInfo.innerHTML = `<span class="badge bg-danger">Zablokowany: ${currentUser.email}</span>`;
+    await showView('login');
+    loginView.querySelector('.card-body')!.innerHTML = `
+      <h2 class="text-danger">Konto Zablokowane</h2>
+      <p>Twoje konto (${currentUser.email}) zostało zablokowane przez administratora.</p>
+      <button class="btn btn-primary" onclick="localStorage.clear(); location.reload()">Wyloguj</button>
+    `;
+  } else if (currentUser.role === 'guest') {
+    userInfo.innerHTML = `<span class="badge bg-secondary"><i class="bi bi-person me-1"></i>Gość: ${currentUser.firstName}</span>`;
+    await showView('guest');
+  } else {
+    const roleColor = currentUser.role === 'admin' ? 'danger' : (currentUser.role === 'devops' ? 'info' : 'primary');
+    userInfo.innerHTML = `<span class="badge bg-${roleColor}-subtle text-${roleColor} border border-${roleColor}-subtle p-2"><i class="bi bi-person-circle me-1"></i>${currentUser.firstName} (${currentUser.role})</span>`;
+    await showView('app');
+  }
+  await updateNotificationBadge();
+}
+
+init();
