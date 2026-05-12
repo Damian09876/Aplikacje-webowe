@@ -205,6 +205,8 @@ const markAllReadBtn = document.getElementById("markAllReadBtn") as HTMLButtonEl
 const toastContainer = document.getElementById("toastContainer") as HTMLElement;
 
 let editingProjectId: string | null = null;
+let editingStoryId: string | null = null;
+let editingTaskId: string | null = null;
 let selectedStoryId: string | null = null;
 let selectedTask: Task | null = null;
 
@@ -460,7 +462,11 @@ async function renderStories() {
       <div class="card-body p-3">
         <div class="d-flex justify-content-between align-items-start mb-2">
             <h6 class="card-title mb-0 fw-bold">${story.name}</h6>
-            <span class="badge rounded-pill text-bg-${priorityColor}" style="font-size: 0.65rem;">${story.priority.toUpperCase()}</span>
+            <div>
+              <button class="btn btn-link text-secondary btn-sm p-0 me-1 edit-story-btn"><i class="bi bi-pencil-square"></i></button>
+              <button class="btn btn-link text-danger btn-sm p-0 me-1 delete-story-btn"><i class="bi bi-trash"></i></button>
+              <span class="badge rounded-pill text-bg-${priorityColor}" style="font-size: 0.65rem;">${story.priority.toUpperCase()}</span>
+            </div>
         </div>
         <p class="card-text small text-muted mb-3">${story.description || 'Brak opisu'}</p>
         <div class="d-flex gap-2">
@@ -473,6 +479,26 @@ async function renderStories() {
         </div>
       </div>
     `;
+
+    div.querySelector(".edit-story-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      storyNameInput.value = story.name;
+      storyDescInput.value = story.description;
+      storyPriority.value = story.priority;
+      editingStoryId = story.id;
+      addStoryBtn.innerText = "Zapisz";
+      addStoryBtn.classList.replace('btn-success', 'btn-warning');
+      storyNameInput.focus();
+    });
+
+    div.querySelector(".delete-story-btn")?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (confirm(`Czy usunąć historyjkę "${story.name}"?`)) {
+        await storyService.delete(story.id);
+        if (selectedStoryId === story.id) selectedStoryId = null;
+        await renderStories();
+      }
+    });
 
     div.querySelector(".select-story-btn")?.addEventListener("click", async (e) => {
       e.stopPropagation();
@@ -541,18 +567,31 @@ addStoryBtn.addEventListener("click", async () => {
   const activeId = session.getActiveProjectId();
   if (!activeId || !storyNameInput.value.trim() || !currentUser) return;
 
-  const newStory: Story = {
-    id: crypto.randomUUID(),
-    name: storyNameInput.value,
-    description: storyDescInput.value,
-    priority: storyPriority.value as Priority,
-    projectId: activeId,
-    ownerId: currentUser.id,
-    createdAt: new Date().toISOString(),
-    status: 'todo'
-  };
+  if (editingStoryId) {
+    const story = await storyService.getById(editingStoryId);
+    if (story) {
+      story.name = storyNameInput.value;
+      story.description = storyDescInput.value;
+      story.priority = storyPriority.value as Priority;
+      await storyService.update(story);
+    }
+    editingStoryId = null;
+    addStoryBtn.innerText = "Dodaj Story";
+    addStoryBtn.classList.replace('btn-warning', 'btn-success');
+  } else {
+    const newStory: Story = {
+      id: crypto.randomUUID(),
+      name: storyNameInput.value,
+      description: storyDescInput.value,
+      priority: storyPriority.value as Priority,
+      projectId: activeId,
+      ownerId: currentUser.id,
+      createdAt: new Date().toISOString(),
+      status: 'todo'
+    };
+    await storyService.create(newStory);
+  }
 
-  await storyService.create(newStory);
   storyNameInput.value = "";
   storyDescInput.value = "";
   await renderStories();
@@ -594,6 +633,7 @@ async function renderTasks(storyId: string) {
         <div class="d-flex justify-content-between align-items-start">
             <span class="fw-bold small flex-grow-1">${task.name}</span>
             <div class="btn-group btn-group-sm ms-2">
+              <button class="btn btn-link text-secondary p-0 edit-task-btn"><i class="bi bi-pencil-square small"></i></button>
               <button class="btn btn-link text-danger p-0 delete-task-btn"><i class="bi bi-trash small"></i></button>
             </div>
         </div>
@@ -606,6 +646,19 @@ async function renderTasks(storyId: string) {
         </div>
       </div>
     `;
+
+    div.querySelector(".edit-task-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      taskNameInput.value = task.name;
+      taskDescInput.value = task.description;
+      taskPriorityInput.value = task.priority;
+      taskTimeInput.value = task.estimatedTime.toString();
+      taskUserSelect.value = task.assignedUserId || "";
+      editingTaskId = task.id;
+      addTaskBtn.innerText = "Zapisz";
+      addTaskBtn.classList.replace('btn-primary', 'btn-warning');
+      taskNameInput.focus();
+    });
 
     div.querySelector(".delete-task-btn")?.addEventListener("click", async (e) => {
       e.stopPropagation();
@@ -661,32 +714,51 @@ addTaskBtn.addEventListener("click", async () => {
   }
   if (!taskNameInput.value.trim()) return;
 
-  const newTask: Task = {
-    id: crypto.randomUUID(),
-    name: taskNameInput.value,
-    description: taskDescInput.value,
-    priority: taskPriorityInput.value as Priority,
-    storyId: selectedStoryId,
-    estimatedTime: Number(taskTimeInput.value),
-    status: "todo",
-    createdAt: new Date().toISOString()
-  };
+  if (editingTaskId) {
+    const task = await taskService.getById(editingTaskId);
+    if (task) {
+      task.name = taskNameInput.value;
+      task.description = taskDescInput.value;
+      task.priority = taskPriorityInput.value as Priority;
+      task.estimatedTime = Number(taskTimeInput.value);
+      task.assignedUserId = taskUserSelect.value || undefined;
+      if (task.assignedUserId && task.status === 'todo') {
+        task.status = 'doing';
+        task.startedAt = new Date().toISOString();
+      }
+      await taskService.update(task);
+    }
+    editingTaskId = null;
+    addTaskBtn.innerText = "Zapisz";
+    addTaskBtn.classList.replace('btn-warning', 'btn-primary');
+  } else {
+    const newTask: Task = {
+      id: crypto.randomUUID(),
+      name: taskNameInput.value,
+      description: taskDescInput.value,
+      priority: taskPriorityInput.value as Priority,
+      storyId: selectedStoryId,
+      estimatedTime: Number(taskTimeInput.value),
+      status: "todo",
+      createdAt: new Date().toISOString()
+    };
 
-  if (taskUserSelect.value) {
-    newTask.assignedUserId = taskUserSelect.value;
-    newTask.status = "doing";
-    newTask.startedAt = new Date().toISOString();
+    if (taskUserSelect.value) {
+      newTask.assignedUserId = taskUserSelect.value;
+      newTask.status = "doing";
+      newTask.startedAt = new Date().toISOString();
+      
+      // Notification for task assignment
+      await notifyUser(newTask.assignedUserId, "Przypisanie do zadania", `Zostałeś przypisany do nowego zadania: "${newTask.name}"`, 'high');
+    }
+
+    await taskService.create(newTask);
     
-    // Notification for task assignment
-    await notifyUser(newTask.assignedUserId, "Przypisanie do zadania", `Zostałeś przypisany do nowego zadania: "${newTask.name}"`, 'high');
-  }
-
-  await taskService.create(newTask);
-  
-  // Notification for new task in story
-  const story = await storyService.getById(selectedStoryId);
-  if (story) {
-    await notifyUser(story.ownerId, "Nowe zadanie w historyjce", `Do Twojej historyjki "${story.name}" dodano nowe zadanie: "${newTask.name}".`, 'medium');
+    // Notification for new task in story
+    const story = await storyService.getById(selectedStoryId);
+    if (story) {
+      await notifyUser(story.ownerId, "Nowe zadanie w historyjce", `Do Twojej historyjki "${story.name}" dodano nowe zadanie: "${newTask.name}".`, 'medium');
+    }
   }
 
   taskNameInput.value = "";
