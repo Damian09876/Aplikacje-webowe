@@ -229,7 +229,7 @@ class FirestoreProjectService implements IProjectService {
 
   async update(updatedProject: Project) {
     const docRef = doc(this.collectionRef, updatedProject.id);
-    await updateDoc(docRef, { ...updatedProject });
+    await setDoc(docRef, updatedProject);
   }
 
   async delete(id: string) {
@@ -258,8 +258,9 @@ class FirestoreStoryService implements IStoryService {
 
   async update(updatedStory: Story) {
     const docRef = doc(this.collectionRef, updatedStory.id);
-    await updateDoc(docRef, { ...updatedStory });
+    await setDoc(docRef, updatedStory);
   }
+
 
   async delete(id: string) {
     await deleteDoc(doc(this.collectionRef, id));
@@ -286,7 +287,7 @@ class FirestoreTaskService implements ITaskService {
 
   async update(task: Task) {
     const docRef = doc(this.collectionRef, task.id);
-    await updateDoc(docRef, { ...task });
+    await setDoc(docRef, task);
   }
 
   async delete(id: string) {
@@ -309,23 +310,38 @@ class FirestoreNotificationService implements INotificationService {
   }
 
   async getAll(recipientId: string): Promise<AppNotification[]> {
-    const q = query(
-      this.collectionRef, 
-      where("recipientId", "==", recipientId),
-      orderBy("date", "desc")
-    );
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AppNotification));
+    try {
+      const q = query(
+        this.collectionRef, 
+        where("recipientId", "==", recipientId),
+        orderBy("date", "desc")
+      );
+      const snapshot = await getDocs(q);
+      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AppNotification));
+    } catch (e) {
+      console.warn("Firestore complex query failed, falling back to client-side sort:", e);
+      const q = query(this.collectionRef, where("recipientId", "==", recipientId));
+      const snapshot = await getDocs(q);
+      const notifs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AppNotification));
+      return notifs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }
   }
 
   async getUnreadCount(recipientId: string): Promise<number> {
-    const q = query(
-      this.collectionRef, 
-      where("recipientId", "==", recipientId),
-      where("isRead", "==", false)
-    );
-    const snapshot = await getDocs(q);
-    return snapshot.size;
+    try {
+      const q = query(
+        this.collectionRef, 
+        where("recipientId", "==", recipientId),
+        where("isRead", "==", false)
+      );
+      const snapshot = await getDocs(q);
+      return snapshot.size;
+    } catch (e) {
+      console.warn("Firestore complex query failed, falling back to client-side filter:", e);
+      const q = query(this.collectionRef, where("recipientId", "==", recipientId));
+      const snapshot = await getDocs(q);
+      return snapshot.docs.filter(d => !d.data().isRead).length;
+    }
   }
 
   async markAsRead(id: string) {

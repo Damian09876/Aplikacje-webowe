@@ -407,7 +407,7 @@ async function renderProjects() {
       nameInput.value = project.name;
       descInput.value = project.description;
       editingProjectId = project.id;
-      addBtn.innerText = "Zapisz zmiany";
+      addBtn.innerText = "Zapisz";
       addBtn.classList.replace('btn-primary', 'btn-warning');
       nameInput.focus();
     });
@@ -623,6 +623,7 @@ async function renderTasks(storyId: string) {
     const priorityColor = task.priority === 'high' ? 'danger' : (task.priority === 'medium' ? 'warning' : 'success');
     
     div.className = `card mb-2 shadow-sm border-0 border-start border-3 border-${priorityColor}`;
+    div.setAttribute('data-testid', 'task-card');
     div.style.cursor = "pointer";
     div.onclick = async () => await showTaskDetails(task);
     
@@ -633,8 +634,8 @@ async function renderTasks(storyId: string) {
         <div class="d-flex justify-content-between align-items-start">
             <span class="fw-bold small flex-grow-1">${task.name}</span>
             <div class="btn-group btn-group-sm ms-2">
-              <button class="btn btn-link text-secondary p-0 edit-task-btn"><i class="bi bi-pencil-square small"></i></button>
-              <button class="btn btn-link text-danger p-0 delete-task-btn"><i class="bi bi-trash small"></i></button>
+              <button class="btn btn-link text-secondary p-0 edit-task-btn" data-testid="btn-edit-task"><i class="bi bi-pencil-square small"></i></button>
+              <button class="btn btn-link text-danger p-0 delete-task-btn" data-testid="btn-delete-task"><i class="bi bi-trash small"></i></button>
             </div>
         </div>
         <p class="small text-muted mb-1 text-truncate">${task.description || 'Brak opisu'}</p>
@@ -642,7 +643,7 @@ async function renderTasks(storyId: string) {
             <span class="badge bg-light text-dark border small" style="font-size: 0.6rem;">
                 <i class="bi bi-person me-1"></i>${assignedUser ? assignedUser.firstName : "Nieprzypisany"}
             </span>
-            ${task.status !== 'done' ? `<button class="btn btn-xs btn-success py-0 px-1 done-btn" style="font-size: 0.6rem;">Gotowe</button>` : '<i class="bi bi-check-all text-success"></i>'}
+            ${task.status !== 'done' ? `<button class="btn btn-xs btn-success py-0 px-1 done-btn" data-testid="btn-done-task" style="font-size: 0.6rem;">Gotowe</button>` : '<i class="bi bi-check-all text-success"></i>'}
         </div>
       </div>
     `;
@@ -714,57 +715,70 @@ addTaskBtn.addEventListener("click", async () => {
   }
   if (!taskNameInput.value.trim()) return;
 
-  if (editingTaskId) {
-    const task = await taskService.getById(editingTaskId);
-    if (task) {
-      task.name = taskNameInput.value;
-      task.description = taskDescInput.value;
-      task.priority = taskPriorityInput.value as Priority;
-      task.estimatedTime = Number(taskTimeInput.value);
-      task.assignedUserId = taskUserSelect.value || undefined;
-      if (task.assignedUserId && task.status === 'todo') {
-        task.status = 'doing';
-        task.startedAt = new Date().toISOString();
+  try {
+    if (editingTaskId) {
+      console.log("Updating task:", editingTaskId);
+      const task = await taskService.getById(editingTaskId);
+      if (task) {
+        console.log("Found task to update:", task.name);
+        task.name = taskNameInput.value;
+        task.description = taskDescInput.value;
+        task.priority = taskPriorityInput.value as Priority;
+        task.estimatedTime = Number(taskTimeInput.value);
+        task.assignedUserId = taskUserSelect.value || undefined;
+        await taskService.update(task);
+        console.log("Task updated successfully in service");
+      } else {
+        console.error("Task not found for editing:", editingTaskId);
       }
-      await taskService.update(task);
-    }
-    editingTaskId = null;
-    addTaskBtn.innerText = "Zapisz";
-    addTaskBtn.classList.replace('btn-warning', 'btn-primary');
-  } else {
-    const newTask: Task = {
-      id: crypto.randomUUID(),
-      name: taskNameInput.value,
-      description: taskDescInput.value,
-      priority: taskPriorityInput.value as Priority,
-      storyId: selectedStoryId,
-      estimatedTime: Number(taskTimeInput.value),
-      status: "todo",
-      createdAt: new Date().toISOString()
-    };
+    } else {
+      const newTask: Task = {
+        id: crypto.randomUUID(),
+        name: taskNameInput.value,
+        description: taskDescInput.value,
+        priority: taskPriorityInput.value as Priority,
+        storyId: selectedStoryId,
+        estimatedTime: Number(taskTimeInput.value),
+        status: "todo",
+        createdAt: new Date().toISOString()
+      };
 
-    if (taskUserSelect.value) {
-      newTask.assignedUserId = taskUserSelect.value;
-      newTask.status = "doing";
-      newTask.startedAt = new Date().toISOString();
+      if (taskUserSelect.value) {
+        newTask.assignedUserId = taskUserSelect.value;
+        newTask.status = "doing";
+        newTask.startedAt = new Date().toISOString();
+        
+        // If story is 'todo', change to 'doing'
+        const story = await storyService.getById(selectedStoryId);
+        if (story && story.status === 'todo') {
+          story.status = 'doing';
+          await storyService.update(story);
+        }
+
+        // Notification for task assignment
+        await notifyUser(newTask.assignedUserId, "Przypisanie do zadania", `Zostałeś przypisany do nowego zadania: "${newTask.name}"`, 'high');
+      }
+
+      await taskService.create(newTask);
       
-      // Notification for task assignment
-      await notifyUser(newTask.assignedUserId, "Przypisanie do zadania", `Zostałeś przypisany do nowego zadania: "${newTask.name}"`, 'high');
+      // Notification for new task in story
+      const story = await storyService.getById(selectedStoryId);
+      if (story) {
+        await notifyUser(story.ownerId, "Nowe zadanie w historyjce", `Do Twojej historyjki "${story.name}" dodano nowe zadanie: "${newTask.name}".`, 'medium');
+      }
     }
-
-    await taskService.create(newTask);
+  } catch (error) {
+    console.error("Task operation failed:", error);
+  } finally {
+    editingTaskId = null;
+    addTaskBtn.innerText = "Dodaj Task";
+    addTaskBtn.classList.replace('btn-warning', 'btn-primary');
     
-    // Notification for new task in story
-    const story = await storyService.getById(selectedStoryId);
-    if (story) {
-      await notifyUser(story.ownerId, "Nowe zadanie w historyjce", `Do Twojej historyjki "${story.name}" dodano nowe zadanie: "${newTask.name}".`, 'medium');
-    }
+    taskNameInput.value = "";
+    taskDescInput.value = "";
+    taskTimeInput.value = "";
+    await renderTasks(selectedStoryId);
   }
-
-  taskNameInput.value = "";
-  taskDescInput.value = "";
-  taskTimeInput.value = "";
-  await renderTasks(selectedStoryId);
 });
 
 function loadUsersToSelect() {
@@ -869,5 +883,4 @@ async function init() {
   }
   await updateNotificationBadge();
 }
-
 init();
